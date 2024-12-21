@@ -126,6 +126,10 @@ namespace WorkItemImport
                     {
                         _witClientUtils.CorrectDescription(wi, _context.GetItem(rev.ParentOriginId), rev, _context.Journal.IsAttachmentMigrated);
                     }
+                    catch (AttachmentNotFoundException)
+                    {
+                        throw;
+                    }
                     catch (Exception ex)
                     {
                         Logger.Log(ex, $"Failed to correct description for '{wi.Id}', rev '{rev}'.");
@@ -151,6 +155,10 @@ namespace WorkItemImport
                                     field.Target,
                                     _context.Journal.IsAttachmentMigrated
                                 );
+                            }
+                            catch (AttachmentNotFoundException)
+                            {
+                                throw;
                             }
                             catch (Exception ex)
                             {
@@ -187,6 +195,10 @@ namespace WorkItemImport
                 return true;
             }
             catch (AbortMigrationException)
+            {
+                throw;
+            }
+            catch (AttachmentNotFoundException)
             {
                 throw;
             }
@@ -269,7 +281,7 @@ namespace WorkItemImport
         internal async Task<TeamProject> GetOrCreateProjectAsync()
         {
             ProjectHttpClient projectClient = RestConnection.GetClient<ProjectHttpClient>();
-            Logger.Log(LogLevel.Info, "Retreiving project info from Azure DevOps/TFS...");
+            Logger.Log(LogLevel.Info, "Retrieving project info from Azure DevOps/TFS...");
             TeamProject project = null;
 
             try
@@ -644,8 +656,17 @@ namespace WorkItemImport
         {
             bool success = true;
 
-            foreach (var link in rev.Links)
+            var saveLinkTimestamp = rev.Time;
+            if(rev.Fields.Count > 0)
             {
+                // If this revision already has any fields, defer the link import by 2 miliseconds. Otherwise the Work Items API will
+                // send the response: "VS402625: Dates must be increasing with each revision"
+                saveLinkTimestamp = saveLinkTimestamp.AddMilliseconds(2);
+            }
+            
+            for (int i = 0; i < rev.Links.Count; i++)
+            {
+                var link = rev.Links[i];
                 try
                 {
                     int sourceWiId = _context.Journal.GetMigratedId(link.SourceOriginId);
@@ -664,11 +685,18 @@ namespace WorkItemImport
                         continue;
                     }
 
-                    if (link.Change == ReferenceChangeType.Added && !_witClientUtils.AddAndSaveLink(link, wi, settings))
+                    if (i > 0)
+                    {
+                        // If this has multiple link updates, defer each ubsequent link import by 2 miliseconds.
+                        // Otherwise the Work Items API will send the response: "VS402625: Dates must be increasing with each revision"
+                        saveLinkTimestamp = saveLinkTimestamp.AddMilliseconds(2);
+                    }
+
+                    if (link.Change == ReferenceChangeType.Added && !_witClientUtils.AddAndSaveLink(link, wi, settings, rev.Author, saveLinkTimestamp))
                     {
                         success = false;
                     }
-                    else if (link.Change == ReferenceChangeType.Removed && !_witClientUtils.RemoveAndSaveLink(link, wi, settings))
+                    else if (link.Change == ReferenceChangeType.Removed && !_witClientUtils.RemoveAndSaveLink(link, wi, settings, rev.Author, saveLinkTimestamp))
                     {
                         success = false;
                     }
