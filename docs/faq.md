@@ -408,6 +408,8 @@ The mapSprint mapper is included with all of our sample config files, and does a
       }
 ```
 
+Since Azure DevOps doesn't track multiple iterations per work item, MapSprint will default to the **latest** (**rightmost**) Sprint if an Issue is in multiple Sprints.
+
 ### Using a key-value mapper
 
 If you want more granular control over how your sprints and area paths are mapped, you can use a **key-value** mapper.
